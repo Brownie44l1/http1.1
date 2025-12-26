@@ -10,6 +10,12 @@ import (
 )
 
 func main() {
+	router := NewRouter()
+
+	router.Add("GET", "/home", handleHome)
+	router.Add("POST", "/home", handlePost)
+	router.Add("GET", "/static/*", serveStatic)
+
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		panic(err)
@@ -20,14 +26,29 @@ func main() {
 		if err != nil {
 			continue
 		}
-		go handleConn(conn)
+		go handleConn(conn, router)
 	}
 }
 
-func handleConn(conn net.Conn) {
+func handleHome(req *Request, res *Response) {
+	res.StatusCode = 200
+	res.Send("Welcome home!")
+}
+
+func handlePost(req *Request, res *Response) {
+	res.StatusCode = 200
+	res.Send("You sent: " + req.Body)
+}
+
+func serveStatic(req *Request, res *Response) {
+    res.StatusCode = 200
+    res.Headers["Content-Type"] = "text/html"
+    res.Send("<h1>Static file serving works!</h1>\n")
+}
+
+func handleConn(conn net.Conn, router *Router) {
 	defer conn.Close()
 
-	//Read & Parse request
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 
@@ -115,14 +136,25 @@ func handleConn(conn net.Conn) {
 		}
 	}
 
-	//Response
-	if method == "GET" && path == "/home" {
-		sendResponse(conn, 200, "OK", "You sent: "+bodyData+"\n")
-	} else if method == "POST" && path == "/home" {
-		sendResponse(conn, 200, "OK", "You sent: "+bodyData+"\n")
-	} else {
-		sendError(conn, 404, "Not available yet!")
-	}
+	req := &Request{
+        Method:  method,
+        Path:    path,
+        Body:    bodyData,
+        Headers: headers,
+    }
+    
+    // Create Response
+    res := NewResponse(conn)
+    
+    // Find matching handler
+    handler, found := router.Match(method, path)
+    if !found {
+        sendError(conn, 404, "Not Found")
+        return
+    }
+    
+    // Call the handler
+    handler(req, res)
 }
 
 // Helper functions.
@@ -137,22 +169,6 @@ func sendError(conn net.Conn, code int, message string) {
 			"%s",
 		code,
 		message,
-		len(body),
-		body,
-	)
-
-	conn.Write([]byte(response))
-}
-
-func sendResponse(conn net.Conn, code int, status string, body string) {
-	response := fmt.Sprintf(
-		"HTTP/1.1 %d %s\r\n"+
-			"Content-Length: %d\r\n"+
-			"Content-Type: text/plain\r\n"+
-			"\r\n"+
-			"%s",
-		code,
-		status,
 		len(body),
 		body,
 	)
