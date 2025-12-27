@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var metrics = &Metrics{}
 
 func main() {
 	router := NewRouter()
@@ -15,6 +20,8 @@ func main() {
 	router.Add("GET", "/home", handleHome)
 	router.Add("POST", "/home", handlePost)
 	router.Add("GET", "/static/*", serveStatic)
+	router.Add("POST", "/api/test", apiTest)
+	router.Add("GET", "/api/metrics", getMetrics)
 
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
@@ -41,13 +48,62 @@ func handlePost(req *Request, res *Response) {
 }
 
 func serveStatic(req *Request, res *Response) {
+	prefix := "/static/"
+	path := req.Path
+	path = strings.TrimPrefix(path, prefix)
+	path = "./public/" + path
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		res.StatusCode = 404
+		sendError(res.Conn, res.StatusCode, "File not found")
+	}
+
+	ext := filepath.Ext(path)
+
+	switch ext {
+	case ".html":
+		res.Headers["Content-Type"] = "text/html"
+	case ".css":
+		res.Headers["Content-Type"] = "text/css"
+	case ".js":
+		res.Headers["Content-Type"] = "application/javascript"
+	default:
+		res.Headers["Content-Type"] = "application/octet-stream"
+	}
+
+	res.Send(string(content))
+}
+
+func apiTest(req *Request, res *Response) {
+	// Example: Receive JSON
+	var data map[string]string
+	err := req.ParseJSON(&data)
+	if err != nil {
+		res.StatusCode = 400
+		res.Send("Invalid JSON\n")
+		return
+	}
+
+	// Example: Send JSON
+	response := map[string]string{
+		"message": "Received your data",
+		"name":    data["name"],
+	}
+	res.JSON(response)
+}
+
+func getMetrics(req *Request, res *Response) {
+    stats := metrics.GetStats()
     res.StatusCode = 200
-    res.Headers["Content-Type"] = "text/html"
-    res.Send("<h1>Static file serving works!</h1>\n")
+    res.JSON(stats)
 }
 
 func handleConn(conn net.Conn, router *Router) {
 	defer conn.Close()
+
+	startTime := time.Now()
+	metrics.StartRequest()
 
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
@@ -137,24 +193,26 @@ func handleConn(conn net.Conn, router *Router) {
 	}
 
 	req := &Request{
-        Method:  method,
-        Path:    path,
-        Body:    bodyData,
-        Headers: headers,
-    }
-    
-    // Create Response
-    res := NewResponse(conn)
-    
-    // Find matching handler
-    handler, found := router.Match(method, path)
-    if !found {
+		Method:  method,
+		Path:    path,
+		Body:    bodyData,
+		Headers: headers,
+	}
+
+	res := NewResponse(conn)
+
+	handler, found := router.Match(method, path)
+	if !found {
         sendError(conn, 404, "Not Found")
+        
+        duration := time.Since(startTime)
+        metrics.EndRequest(duration, 404)
         return
     }
-    
-    // Call the handler
-    handler(req, res)
+
+	handler(req, res)
+	duration := time.Since(startTime)
+    metrics.EndRequest(duration, res.StatusCode)
 }
 
 // Helper functions.
