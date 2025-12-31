@@ -6,12 +6,16 @@ import (
 	"strings"
 )
 
-type Headers map[string]string
+type Headers struct {
+	Header map[string]string
+}
 
 var rn = []byte("\r\n")
 
 func NewHeaders() Headers {
-	return make(Headers)
+	return Headers{
+		Header: make(map[string]string),
+	}
 }
 
 func parseHeader(fieldLine []byte) (string, string, error) {
@@ -38,7 +42,7 @@ func parseHeader(fieldLine []byte) (string, string, error) {
 	return nameStr, string(value), nil
 }
 
-func (h Headers) Parse(data []byte) (int, bool, error) {
+func (h *Headers) Parse(data []byte) (int, bool, error) {
 	read := 0
 	done := false
 
@@ -60,14 +64,28 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 		}
 
 		read += idx + len(rn)
-		if existing, exists := h[name]; exists {
-			h[name] = existing + ", " + value
+		
+		lname := strings.ToLower(name)
+		if existing, exists := h.Header[lname]; exists {
+			h.Header[lname] = existing + ", " + value
 		} else {
-			h[name] = value
+			h.Header[lname] = value
 		}
 	}
 
 	return read, done, nil
+}
+
+func (h *Headers) Get(key string) (string, bool) {
+	v, ok := h.Header[strings.ToLower(key)]
+	return v, ok
+}
+
+func (h *Headers) Set(key, value string) {
+	if h.Header == nil {
+		h.Header = make(map[string]string)
+	}
+	h.Header[key] = value
 }
 
 func isValidHeaderChar(b byte) bool {

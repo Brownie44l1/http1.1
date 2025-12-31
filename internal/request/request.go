@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"http1.1/internal/headers"
@@ -15,6 +16,7 @@ type ParserState string
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	State       ParserState
 }
 
@@ -27,6 +29,7 @@ type RequestLine struct {
 const (
 	StateInit           ParserState = "Init"
 	StateParsingHeaders ParserState = "ParsingHeaders"
+	StateParsingBody    ParserState = "ParsingBody"
 	StateDone           ParserState = "Done"
 	StateError          ParserState = "Error"
 )
@@ -40,6 +43,7 @@ func newRequest() *Request {
 	return &Request{ //error
 		State:   StateInit,
 		Headers: headers.NewHeaders(),
+		Body:    nil,
 	}
 }
 
@@ -74,12 +78,54 @@ outer:
 				return 0, err
 			}
 
-			if done {
-				r.State = StateDone
+			read += n
+
+			if !done {
+				return read, nil
 			}
 
-			read += n
+			if done {
+				if cl, ok := r.Headers.Get("Content-Length"); ok {
+					if cl == "0" {
+						r.State = StateDone
+					} else {
+						r.State = StateParsingBody
+					}
+				} else {
+					r.State = StateDone
+				}
+			}
 			return read, nil
+
+		case StateParsingBody:
+			clStr, _ := r.Headers.Get("Content-Length")
+			contentLength, err := strconv.Atoi(clStr)
+			if err != nil {
+				r.State = StateError
+				return 0, err
+			}
+
+			remaining := contentLength - len(r.Body)
+			if remaining <= 0 {
+				r.State = StateDone
+				break outer // Exit to outer loop
+			}
+
+			toRead := min(remaining, len(data[read:]))
+			r.Body = append(r.Body, data[read:read+toRead]...)
+			read += toRead
+
+			if len(r.Body) > contentLength {
+				r.State = StateError
+				return 0, errors.New("body larger than Content-Length")
+			}
+
+			if len(r.Body) == contentLength {
+				r.State = StateDone
+				// DON'T return here - let it continue to the outer break
+			} else {
+				return read, nil // Only return if we need more data
+			}
 
 		case StateDone:
 			break outer
@@ -101,25 +147,53 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buf := make([]byte, 1024)
 	bufLen := 0
 
-	for !request.done() {
+	for {
+		if request.done() {
+			break
+		}
+
+		// Parse whatever is currently in the buffer
+		if bufLen > 0 {
+			readN, parseErr := request.parse(buf[:bufLen])
+			if parseErr != nil {
+				return nil, parseErr
+			}
+
+			copy(buf, buf[readN:bufLen])
+			bufLen -= readN
+			
+			// If we made progress, continue parsing
+			if readN > 0 {
+				continue
+			}
+		}
+
+		// Only read more data if we need it (buffer empty OR parse made no progress)
 		n, err := reader.Read(buf[bufLen:])
+		
 		if err != nil && err != io.EOF {
 			return nil, err
 		}
-
-		bufLen += n
-		readN, err := request.parse(buf[:bufLen])
-		if err != nil {
-			return nil, err
-		}
-
-		copy(buf, buf[readN:bufLen])
-		bufLen -= readN
-
-		if err == io.EOF {
+		
+		if n == 0 && err == io.EOF {
+			if request.State == StateParsingBody {
+				if cl, ok := request.Headers.Get("Content-Length"); ok {
+					contentLength, _ := strconv.Atoi(cl)
+					if len(request.Body) < contentLength {
+						return nil, errors.New("unexpected EOF while reading body")
+					}
+				}
+			}
 			break
 		}
+		
+		bufLen += n
 	}
+
+	if request.State != StateDone {
+		return nil, errors.New("incomplete request")
+	}
+
 	return request, nil
 }
 
@@ -141,7 +215,7 @@ func ParseRequestLine(b []byte) (*RequestLine, int, error) {
 	target := string(parts[1])
 	version := string(parts[2])
 
-	if method != "GET" {
+	if method != "GET" && method != "POST" {
 		return nil, 0, ErrUnsupportedMethod
 	}
 

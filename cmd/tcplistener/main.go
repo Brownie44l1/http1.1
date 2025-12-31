@@ -42,7 +42,24 @@ func handleConnection(conn net.Conn) {
 	fmt.Printf("- Target: %s\n", request.RequestLine.RequestTarget)
 	fmt.Printf("- Version: %s\n", request.RequestLine.HttpVersion)
 	fmt.Printf("Headers:\n")
-	for key, value := range request.Headers {
+	for key, value := range request.Headers.Header {
 		fmt.Printf("- %s: %s\n", key, value)
 	}
+	fmt.Println("Body")
+	fmt.Printf("%s\n", string(request.Body))
+
+	/* body := "Hello from your HTTP server!\n"
+
+	response := fmt.Sprintf(
+		"HTTP/1.1 200 OK\r\n"+
+			"Content-Length: %d\r\n"+
+			"Content-Type: text/plain\r\n"+
+			"Connection: close\r\n"+
+			"\r\n"+
+			"%s",
+		len(body),
+		body,
+	)
+
+	conn.Write([]byte(response)) */
 }
