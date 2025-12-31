@@ -1,4 +1,5 @@
-package main
+package http
+/*
 
 import (
 	"encoding/json"
@@ -190,3 +191,4 @@ func (m *Metrics) GetStats() map[string]any {
 		"avg_response_time_ms": avgResponseTime,
 	}
 }
+ */

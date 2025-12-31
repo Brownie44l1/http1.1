@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"http1.1/internal/headers"
 )
 
 type ParserState string
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	State       ParserState
 }
 
@@ -22,9 +25,10 @@ type RequestLine struct {
 }
 
 const (
-	StateInit ParserState = "Init"
-	StateDone ParserState = "Done"
-	StateError ParserState = "Error"
+	StateInit           ParserState = "Init"
+	StateParsingHeaders ParserState = "ParsingHeaders"
+	StateDone           ParserState = "Done"
+	StateError          ParserState = "Error"
 )
 
 var ErrMalformedRequestLine = fmt.Errorf("malformed request line")
@@ -34,7 +38,8 @@ var Seperator = "\r\n"
 
 func newRequest() *Request {
 	return &Request{ //error
-		State: StateInit,
+		State:   StateInit,
+		Headers: headers.NewHeaders(),
 	}
 }
 
@@ -46,7 +51,7 @@ outer:
 		switch r.State {
 		case StateError:
 			return 0, errors.New("request in error state")
-		
+
 		case StateInit:
 			rl, n, err := ParseRequestLine(data)
 			if err != nil {
@@ -60,10 +65,27 @@ outer:
 
 			r.RequestLine = *rl
 			read += n
-			r.State = StateDone
+			r.State = StateParsingHeaders
+
+		case StateParsingHeaders:
+			n, done, err := r.Headers.Parse(data[read:])
+			if err != nil {
+				r.State = StateError
+				return 0, err
+			}
+
+			if done {
+				r.State = StateDone
+			}
+
+			read += n
+			return read, nil
 
 		case StateDone:
 			break outer
+
+		default:
+			return 0, fmt.Errorf("unknown state")
 		}
 	}
 	return read, nil
@@ -81,7 +103,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	for !request.done() {
 		n, err := reader.Read(buf[bufLen:])
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 
@@ -93,6 +115,10 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 		copy(buf, buf[readN:bufLen])
 		bufLen -= readN
+
+		if err == io.EOF {
+			break
+		}
 	}
 	return request, nil
 }
