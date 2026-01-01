@@ -97,6 +97,72 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	return n, nil
 }
 
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.state != stateHeadersWritten && w.state != stateBodyWritten {
+		return 0, fmt.Errorf("must write status line and headers before chunked body")
+	}
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	// Write chunk size in hexadecimal
+	chunkSize := fmt.Sprintf("%x\r\n", len(p))
+	_, err := w.w.Write([]byte(chunkSize))
+	if err != nil {
+		return 0, err
+	}
+
+	// Write chunk data
+	n, err := w.w.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	// Write trailing CRLF
+	_, err = w.w.Write([]byte("\r\n"))
+	if err != nil {
+		return n, err
+	}
+
+	w.state = stateBodyWritten
+	return n, nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.state != stateHeadersWritten && w.state != stateBodyWritten {
+		return 0, fmt.Errorf("must write status line and headers before ending chunked body")
+	}
+
+	// Write the final zero-sized chunk
+	n, err := w.w.Write([]byte("0\r\n\r\n"))
+	if err != nil {
+		return n, err
+	}
+
+	w.state = stateBodyWritten
+	return n, nil
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	if w.state != stateBodyWritten {
+		return fmt.Errorf("must write body before trailers")
+	}
+
+	// Write trailers just like headers
+	for key, value := range h.Header {
+		trailerLine := fmt.Sprintf("%s: %s\r\n", key, value)
+		_, err := w.w.Write([]byte(trailerLine))
+		if err != nil {
+			return err
+		}
+	}
+
+	// Write final CRLF to end the message
+	_, err := w.w.Write([]byte("\r\n"))
+	return err
+}
+
 // Legacy functions for GetDefaultHeaders
 func GetDefaultHeaders(contentLen int) headers.Headers {
 	return headers.Headers{
