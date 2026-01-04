@@ -38,17 +38,19 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	fmt.Println("Request Line")
-	fmt.Printf("- Method: %s\n", request.RequestLine.Method)
-	fmt.Printf("- Target: %s\n", request.RequestLine.RequestTarget)
-	fmt.Printf("- Version: %s\n", request.RequestLine.HttpVersion)
-	fmt.Printf("Headers:\n")
-	for key, value := range request.Headers.Header {
-		fmt.Printf("- %s: %s\n", key, value)
+	fmt.Printf("Method: %s\n", request.Method)
+	fmt.Printf("Path: %s\n", request.Path)
+	fmt.Printf("Version: %s\n", request.Version)
+
+	for key, values := range request.Headers.GetAllHeaders() {
+		for _, value := range values {
+			fmt.Printf("%s: %s\n", key, value)
+		}
 	}
 	fmt.Println("Body")
 	fmt.Printf("%s\n", string(request.Body))
 
-	/* body := "Hello from your HTTP server!\n"
+	body := "Hello from your HTTP server!\n"
 
 	response := fmt.Sprintf(
 		"HTTP/1.1 200 OK\r\n"+
@@ -61,5 +63,5 @@ func handleConnection(conn net.Conn) {
 		body,
 	)
 
-	conn.Write([]byte(response)) */
+	conn.Write([]byte(response))
 }

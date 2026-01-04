@@ -7,14 +7,29 @@ import (
 	"http1.1/internal/headers"
 )
 
+// StatusCode represents HTTP status codes
 type StatusCode int
 
 const (
-	StatusOk                  StatusCode = 200
+	StatusOK                  StatusCode = 200
+	StatusCreated             StatusCode = 201
+	StatusNoContent           StatusCode = 204
 	StatusBadRequest          StatusCode = 400
+	StatusNotFound            StatusCode = 404
 	StatusInternalServerError StatusCode = 500
 )
 
+// statusText maps status codes to reason phrases
+var statusText = map[StatusCode]string{
+	StatusOK:                  "OK",
+	StatusCreated:             "Created",
+	StatusNoContent:           "No Content",
+	StatusBadRequest:          "Bad Request",
+	StatusNotFound:            "Not Found",
+	StatusInternalServerError: "Internal Server Error",
+}
+
+// writerState tracks what's been written so far
 type writerState int
 
 const (
@@ -24,152 +39,214 @@ const (
 	stateBodyWritten
 )
 
+// Writer writes HTTP responses to an io.Writer
 type Writer struct {
-	w     io.Writer
-	state writerState
+	w             io.Writer
+	state         writerState
+	statusCode    StatusCode
+	contentLength int64  // -1 means unknown
+	isChunked     bool
+	hadError      bool
 }
 
+// NewWriter creates a new response writer
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
-		w:     w,
-		state: stateStart,
+		w:             w,
+		state:         stateStart,
+		contentLength: -1,
 	}
 }
 
-func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
+// WriteStatusLine writes the HTTP status line
+func (w *Writer) WriteStatusLine(code StatusCode) error {
 	if w.state != stateStart {
 		return fmt.Errorf("status line already written")
 	}
-	var reasonPhase string
 
-	switch statusCode {
-	case StatusOk:
-		reasonPhase = "OK"
-	case StatusBadRequest:
-		reasonPhase = "Bad Request"
-	case StatusInternalServerError:
-		reasonPhase = "Internal Server Error"
-	default:
-		reasonPhase = ""
+	reason, ok := statusText[code]
+	if !ok {
+		reason = "Unknown"
 	}
 
-	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, reasonPhase)
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, reason)
 	_, err := w.w.Write([]byte(statusLine))
 	if err != nil {
+		w.hadError = true
 		return err
 	}
 
+	w.statusCode = code
 	w.state = stateStatusWritten
 	return nil
 }
 
-func (w *Writer) WriteHeaders(headers headers.Headers) error {
+// WriteHeaders writes all HTTP headers
+func (w *Writer) WriteHeaders(h *headers.Headers) error {
 	if w.state != stateStatusWritten {
 		return fmt.Errorf("must write status line before headers")
 	}
-	for key, value := range headers.Header {
-		headerLine := fmt.Sprintf("%s: %s\r\n", key, value)
-		_, err := w.w.Write([]byte(headerLine))
-		if err != nil {
-			return err
+
+	// Track important headers for connection management
+	if cl, ok := h.Get("content-length"); ok {
+		if length, err := parseInt64(cl); err == nil {
+			w.contentLength = length
 		}
 	}
 
+	if te, ok := h.Get("transfer-encoding"); ok {
+		if te == "chunked" {
+			w.isChunked = true
+		}
+	}
+
+	// Write all headers
+	for key, values := range h.GetAllHeaders() {
+		for _, value := range values {
+			headerLine := fmt.Sprintf("%s: %s\r\n", key, value)
+			_, err := w.w.Write([]byte(headerLine))
+			if err != nil {
+				w.hadError = true
+				return err
+			}
+		}
+	}
+
+	// Write empty line to end headers
 	_, err := w.w.Write([]byte("\r\n"))
 	if err != nil {
+		w.hadError = true
 		return err
 	}
+
 	w.state = stateHeadersWritten
 	return nil
 }
 
-func (w *Writer) WriteBody(p []byte) (int, error) {
+// WriteBody writes the complete response body
+func (w *Writer) WriteBody(data []byte) error {
 	if w.state != stateHeadersWritten {
-		return 0, fmt.Errorf("must write status line and headers before body")
+		return fmt.Errorf("must write headers before body")
 	}
 
-	n, err := w.w.Write(p)
+	if len(data) == 0 {
+		w.state = stateBodyWritten
+		return nil
+	}
+
+	_, err := w.w.Write(data)
 	if err != nil {
-		return n, err
+		w.hadError = true
+		return err
 	}
 
 	w.state = stateBodyWritten
-	return n, nil
+	return nil
 }
 
-func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+// WriteChunk writes a single chunk (for chunked transfer encoding)
+func (w *Writer) WriteChunk(data []byte) error {
 	if w.state != stateHeadersWritten && w.state != stateBodyWritten {
-		return 0, fmt.Errorf("must write status line and headers before chunked body")
+		return fmt.Errorf("must write headers before chunks")
 	}
 
-	if len(p) == 0 {
-		return 0, nil
+	if len(data) == 0 {
+		return nil // Don't write empty chunks (except final)
 	}
 
-	// Write chunk size in hexadecimal
-	chunkSize := fmt.Sprintf("%x\r\n", len(p))
-	_, err := w.w.Write([]byte(chunkSize))
-	if err != nil {
-		return 0, err
+	// Write chunk size in hex
+	chunkSize := fmt.Sprintf("%x\r\n", len(data))
+	if _, err := w.w.Write([]byte(chunkSize)); err != nil {
+		w.hadError = true
+		return err
 	}
 
 	// Write chunk data
-	n, err := w.w.Write(p)
-	if err != nil {
-		return n, err
+	if _, err := w.w.Write(data); err != nil {
+		w.hadError = true
+		return err
 	}
 
 	// Write trailing CRLF
-	_, err = w.w.Write([]byte("\r\n"))
-	if err != nil {
-		return n, err
+	if _, err := w.w.Write([]byte("\r\n")); err != nil {
+		w.hadError = true
+		return err
 	}
 
 	w.state = stateBodyWritten
-	return n, nil
+	return nil
 }
 
-func (w *Writer) WriteChunkedBodyDone() (int, error) {
+// FinishChunked writes the final zero-length chunk
+func (w *Writer) FinishChunked() error {
 	if w.state != stateHeadersWritten && w.state != stateBodyWritten {
-		return 0, fmt.Errorf("must write status line and headers before ending chunked body")
+		return fmt.Errorf("must write headers before finishing chunks")
 	}
 
-	// Write the final zero-sized chunk
-	n, err := w.w.Write([]byte("0\r\n\r\n"))
+	// Write final chunk: 0\r\n\r\n
+	_, err := w.w.Write([]byte("0\r\n\r\n"))
 	if err != nil {
-		return n, err
+		w.hadError = true
+		return err
 	}
 
 	w.state = stateBodyWritten
-	return n, nil
+	return nil
 }
 
-func (w *Writer) WriteTrailers(h headers.Headers) error {
+// WriteTrailers writes HTTP trailers (after chunked body)
+func (w *Writer) WriteTrailers(h *headers.Headers) error {
 	if w.state != stateBodyWritten {
 		return fmt.Errorf("must write body before trailers")
 	}
 
 	// Write trailers just like headers
-	for key, value := range h.Header {
-		trailerLine := fmt.Sprintf("%s: %s\r\n", key, value)
-		_, err := w.w.Write([]byte(trailerLine))
-		if err != nil {
-			return err
+	for key, values := range h.GetAllHeaders() {
+		for _, value := range values {
+			line := fmt.Sprintf("%s: %s\r\n", key, value)
+			if _, err := w.w.Write([]byte(line)); err != nil {
+				w.hadError = true
+				return err
+			}
 		}
 	}
 
-	// Write final CRLF to end the message
+	// Final CRLF
 	_, err := w.w.Write([]byte("\r\n"))
+	if err != nil {
+		w.hadError = true
+	}
 	return err
 }
 
-// Legacy functions for GetDefaultHeaders
-func GetDefaultHeaders(contentLen int) headers.Headers {
-	return headers.Headers{
-		Header: map[string]string{
-			"Content-Length": fmt.Sprintf("%d", contentLen),
-			"Connection":     "close",
-			"Content-Type":   "text/plain",
-		},
+// State tracking methods for connection management
+
+func (w *Writer) HadError() bool {
+	return w.hadError
+}
+
+func (w *Writer) HasContentLength() bool {
+	return w.contentLength >= 0
+}
+
+func (w *Writer) IsChunked() bool {
+	return w.isChunked
+}
+
+func (w *Writer) StatusCode() StatusCode {
+	return w.statusCode
+}
+
+// Helper functions
+
+func parseInt64(s string) (int64, error) {
+	var val int64
+	_, err := fmt.Sscanf(s, "%d", &val)
+	if err != nil {
+		return -1, err
 	}
+	if val < 0 {
+		return -1, fmt.Errorf("negative value")
+	}
+	return val, nil
 }

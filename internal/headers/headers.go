@@ -7,85 +7,115 @@ import (
 )
 
 type Headers struct {
-	Header map[string]string
+	headers map[string][]string
 }
 
-var rn = []byte("\r\n")
-
-func NewHeaders() Headers {
-	return Headers{
-		Header: make(map[string]string),
+func NewHeaders() *Headers {
+	return &Headers{
+		headers: make(map[string][]string),
 	}
 }
 
-func parseHeader(fieldLine []byte) (string, string, error) {
-	parts := bytes.SplitN(fieldLine, []byte(":"), 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("malformed field line")
+// Get returns the first value for a header
+func (h *Headers) Get(key string) (string, bool) {
+	values := h.headers[strings.ToLower(key)]
+	if len(values) == 0 {
+		return "", false
 	}
-
-	name := parts[0]
-	value := bytes.TrimSpace(parts[1])
-
-	if bytes.HasSuffix(name, []byte(" ")) {
-		return "", "", fmt.Errorf("malformed field name")
-	}
-
-	for _, b := range name {
-		if !isValidHeaderChar(b) {
-			return "", "", fmt.Errorf("invalid character in field name")
-		}
-	}
-
-	nameStr := strings.ToLower(string(name))
-
-	return nameStr, string(value), nil
+	return values[0], true
 }
 
+// GetAll returns all values for a header
+func (h *Headers) GetAll(key string) []string {
+	return h.headers[strings.ToLower(key)]
+}
+
+// GetAllHeaders returns the internal map (for iteration)
+func (h *Headers) GetAllHeaders() map[string][]string {
+	return h.headers
+}
+
+// Set replaces all values for a header
+func (h *Headers) Set(key, value string) {
+	h.headers[strings.ToLower(key)] = []string{value}
+}
+
+// Add appends a value to a header
+func (h *Headers) Add(key, value string) {
+	key = strings.ToLower(key)
+	h.headers[key] = append(h.headers[key], value)
+}
+
+// Del removes a header
+func (h *Headers) Del(key string) {
+	delete(h.headers, strings.ToLower(key))
+}
+
+// Parse parses headers from raw bytes
 func (h *Headers) Parse(data []byte) (int, bool, error) {
 	read := 0
 	done := false
 
 	for {
-		idx := bytes.Index(data[read:], rn)
+		idx := bytes.Index(data[read:], []byte("\r\n"))
 		if idx == -1 {
+			// Need more data
 			break
 		}
 
 		if idx == 0 {
+			// Empty line = end of headers
 			done = true
-			read += len(rn)
+			read += 2
 			break
 		}
 
-		name, value, err := parseHeader(data[read : read+idx])
+		line := data[read : read+idx]
+
+		// Check for line folding (obsolete, reject it)
+		if line[0] == ' ' || line[0] == '\t' {
+			return read, false, fmt.Errorf("obsolete line folding not supported")
+		}
+
+		name, value, err := parseHeader(line)
 		if err != nil {
 			return read, done, err
 		}
 
-		read += idx + len(rn)
-		
-		lname := strings.ToLower(name)
-		if existing, exists := h.Header[lname]; exists {
-			h.Header[lname] = existing + ", " + value
-		} else {
-			h.Header[lname] = value
-		}
+		// Always append - let caller decide how to handle duplicates
+		h.Add(name, value)
+
+		read += idx + 2
 	}
 
 	return read, done, nil
 }
 
-func (h *Headers) Get(key string) (string, bool) {
-	v, ok := h.Header[strings.ToLower(key)]
-	return v, ok
-}
-
-func (h *Headers) Set(key, value string) {
-	if h.Header == nil {
-		h.Header = make(map[string]string)
+func parseHeader(line []byte) (string, string, error) {
+	colonIdx := bytes.IndexByte(line, ':')
+	if colonIdx == -1 {
+		return "", "", fmt.Errorf("malformed header: no colon")
 	}
-	h.Header[key] = value
+
+	name := line[:colonIdx]
+	value := line[colonIdx+1:]
+
+	// Validate name has no whitespace
+	if bytes.ContainsAny(name, " \t") {
+		return "", "", fmt.Errorf("malformed header: whitespace in name")
+	}
+
+	// Validate name characters
+	for _, b := range name {
+		if !isValidHeaderChar(b) {
+			return "", "", fmt.Errorf("invalid character in header name: %c", b)
+		}
+	}
+
+	// Trim leading/trailing whitespace from value (allowed)
+	value = bytes.TrimSpace(value)
+
+	return strings.ToLower(string(name)), string(value), nil
 }
 
 func isValidHeaderChar(b byte) bool {

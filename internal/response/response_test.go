@@ -2,8 +2,8 @@ package response
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,315 +12,261 @@ import (
 	"http1.1/internal/headers"
 )
 
-func TestChunkedBodyRawBytes(t *testing.T) {
-	// Test: Check exact byte sequence for chunked encoding
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-	
-	err := w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-	
-	h := headers.Headers{
-		Header: map[string]string{"Transfer-Encoding": "chunked"},
-	}
-	err = w.WriteHeaders(h)
-	require.NoError(t, err)
-	
-	// Write a simple 4-byte chunk
-	_, err = w.WriteChunkedBody([]byte("TEST"))
-	require.NoError(t, err)
-	
-	_, err = w.WriteChunkedBodyDone()
-	require.NoError(t, err)
-	
-	got := buf.String()
-	t.Logf("Raw bytes: %q", got)
-	
-	// Should contain: "4\r\nTEST\r\n0\r\n"
-	assert.Contains(t, got, "4\r\n")
-	assert.Contains(t, got, "TEST\r\n")
-	assert.Contains(t, got, "0\r\n")
-}
+func TestSimpleResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
 
-func TestWriterStatusLine(t *testing.T) {
-	// Test: 200 OK
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-	err := w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-	assert.Equal(t, "HTTP/1.1 200 OK\r\n", buf.String())
-
-	// Test: 400 Bad Request
-	buf = &bytes.Buffer{}
-	w = NewWriter(buf)
-	err = w.WriteStatusLine(StatusBadRequest)
-	require.NoError(t, err)
-	assert.Equal(t, "HTTP/1.1 400 Bad Request\r\n", buf.String())
-
-	// Test: 500 Internal Server Error
-	buf = &bytes.Buffer{}
-	w = NewWriter(buf)
-	err = w.WriteStatusLine(StatusInternalServerError)
-	require.NoError(t, err)
-	assert.Equal(t, "HTTP/1.1 500 Internal Server Error\r\n", buf.String())
-}
-
-func TestWriterHeaders(t *testing.T) {
-	// Test: Write headers after status line
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-
-	err := w.WriteStatusLine(StatusOk)
+	err := w.WriteStatusLine(StatusOK)
 	require.NoError(t, err)
 
-	h := headers.Headers{
-		Header: map[string]string{
-			"Content-Type":   "text/html",
-			"Content-Length": "100",
-			"Connection":     "close",
-		},
-	}
+	h := headers.NewHeaders()
+	h.Set("Content-Type", "text/plain")
+	h.Set("Content-Length", "5")
 
 	err = w.WriteHeaders(h)
 	require.NoError(t, err)
 
-	got := buf.String()
-	assert.Contains(t, got, "Content-Type: text/html")
-	assert.Contains(t, got, "Content-Length: 100")
-	assert.Contains(t, got, "Connection: close")
-	assert.Contains(t, got, "\r\n\r\n") // Blank line after headers
-}
-
-func TestWriterBody(t *testing.T) {
-	// Test: Write body after status and headers
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-
-	err := w.WriteStatusLine(StatusOk)
+	err = w.WriteBody([]byte("Hello"))
 	require.NoError(t, err)
 
-	h := headers.Headers{
-		Header: map[string]string{
-			"Content-Type": "text/plain",
-		},
+	result := buf.String()
+	assert.Contains(t, result, "HTTP/1.1 200 OK\r\n")
+	assert.Contains(t, result, "content-type: text/plain\r\n")
+	assert.Contains(t, result, "content-length: 5\r\n")
+	assert.Contains(t, result, "\r\n\r\n")
+	assert.Contains(t, result, "Hello")
+}
+
+func TestStatusCodes(t *testing.T) {
+	tests := []struct {
+		code   StatusCode
+		reason string
+	}{
+		{StatusOK, "OK"},
+		{StatusCreated, "Created"},
+		{StatusBadRequest, "Bad Request"},
+		{StatusNotFound, "Not Found"},
+		{StatusInternalServerError, "Internal Server Error"},
 	}
+
+	for _, tt := range tests {
+		var buf bytes.Buffer
+		w := NewWriter(&buf)
+
+		err := w.WriteStatusLine(tt.code)
+		require.NoError(t, err)
+
+		result := buf.String()
+		expected := fmt.Sprintf("HTTP/1.1 %d %s", tt.code, tt.reason)
+		assert.Contains(t, result, expected)
+	}
+}
+
+func TestChunkedEncoding(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	err := w.WriteStatusLine(StatusOK)
+	require.NoError(t, err)
+
+	h := headers.NewHeaders()
+	h.Set("Transfer-Encoding", "chunked")
 	err = w.WriteHeaders(h)
 	require.NoError(t, err)
 
-	body := []byte("Hello, World!")
-	n, err := w.WriteBody(body)
+	// Write first chunk
+	err = w.WriteChunk([]byte("Hello"))
 	require.NoError(t, err)
-	assert.Equal(t, len(body), n)
 
-	got := buf.String()
-	assert.Contains(t, got, "Hello, World!")
+	// Write second chunk
+	err = w.WriteChunk([]byte(", World"))
+	require.NoError(t, err)
+
+	// Finish chunked
+	err = w.FinishChunked()
+	require.NoError(t, err)
+
+	result := buf.String()
+	assert.Contains(t, result, "5\r\nHello\r\n")   // First chunk
+	assert.Contains(t, result, "7\r\n, World\r\n") // Second chunk
+	assert.Contains(t, result, "0\r\n\r\n")        // Final chunk
+	assert.True(t, w.IsChunked())
 }
 
-func TestWriterChunkedBody(t *testing.T) {
-	// Test: Write chunked body with multiple chunks
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
+func TestStateValidation(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
 
-	err := w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-
-	h := headers.Headers{
-		Header: map[string]string{
-			"Transfer-Encoding": "chunked",
-		},
-	}
-	err = w.WriteHeaders(h)
-	require.NoError(t, err)
-
-	// Write first chunk: "Hello, " (7 bytes)
-	chunk1 := []byte("Hello, ")
-	n, err := w.WriteChunkedBody(chunk1)
-	require.NoError(t, err)
-	assert.Equal(t, len(chunk1), n)
-
-	// Write second chunk: "World!" (6 bytes)
-	chunk2 := []byte("World!")
-	n, err = w.WriteChunkedBody(chunk2)
-	require.NoError(t, err)
-	assert.Equal(t, len(chunk2), n)
-
-	// Write final chunk
-	_, err = w.WriteChunkedBodyDone()
-	require.NoError(t, err)
-
-	got := buf.String()
-	assert.Contains(t, got, "7\r\n")        // Chunk size for "Hello, "
-	assert.Contains(t, got, "Hello, \r\n")  // First chunk data
-	assert.Contains(t, got, "6\r\n")        // Chunk size for "World!"
-	assert.Contains(t, got, "World!\r\n")   // Second chunk data
-	assert.Contains(t, got, "0\r\n")        // Final zero chunk
-
-	t.Logf("Complete chunked output:\n%s", got)
-}
-
-func TestWriterChunkedBodyWithHexSizes(t *testing.T) {
-	// Test: Verify hex encoding of chunk sizes
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-
-	err := w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-
-	h := headers.Headers{
-		Header: map[string]string{
-			"Transfer-Encoding": "chunked",
-		},
-	}
-	err = w.WriteHeaders(h)
-	require.NoError(t, err)
-
-	// Write a 255 byte chunk (ff in hex)
-	chunk := make([]byte, 255)
-	for i := range chunk {
-		chunk[i] = 'A'
-	}
-	_, err = w.WriteChunkedBody(chunk)
-	require.NoError(t, err)
-
-	_, err = w.WriteChunkedBodyDone()
-	require.NoError(t, err)
-
-	got := buf.String()
-	assert.Contains(t, got, "ff\r\n") // 255 in hex is 'ff'
-	t.Logf("Hex size in output: %s", got)
-}
-
-func TestWriterTrailers(t *testing.T) {
-	// Test: Write trailers after chunked body
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-
-	err := w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-
-	h := headers.Headers{
-		Header: map[string]string{
-			"Transfer-Encoding": "chunked",
-			"Trailer":           "X-Content-SHA256, X-Content-Length",
-		},
-	}
-	err = w.WriteHeaders(h)
-	require.NoError(t, err)
-
-	// Write chunked body
-	data := []byte("Test data for hashing")
-	_, err = w.WriteChunkedBody(data)
-	require.NoError(t, err)
-
-	_, err = w.WriteChunkedBodyDone()
-	require.NoError(t, err)
-
-	// Calculate hash
-	hash := sha256.Sum256(data)
-	hashStr := fmt.Sprintf("%x", hash)
-
-	// Write trailers
-	trailers := headers.Headers{
-		Header: map[string]string{
-			"X-Content-SHA256": hashStr,
-			"X-Content-Length": fmt.Sprintf("%d", len(data)),
-		},
-	}
-
-	err = w.WriteTrailers(trailers)
-	require.NoError(t, err)
-
-	got := buf.String()
-	assert.Contains(t, got, "X-Content-SHA256: "+hashStr)
-	assert.Contains(t, got, "X-Content-Length: 21")
-
-	t.Logf("Complete output with trailers:\n%s", got)
-}
-
-func TestWriterStateValidation(t *testing.T) {
-	// Test: Cannot write headers before status
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
-	h := headers.Headers{Header: map[string]string{"Content-Type": "text/plain"}}
+	// Can't write headers before status
+	h := headers.NewHeaders()
 	err := w.WriteHeaders(h)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "status line")
 
-	// Test: Cannot write body before headers
-	buf = &bytes.Buffer{}
-	w = NewWriter(buf)
-	err = w.WriteStatusLine(StatusOk)
+	// Write status
+	err = w.WriteStatusLine(StatusOK)
 	require.NoError(t, err)
-	_, err = w.WriteBody([]byte("test"))
-	assert.Error(t, err)
 
-	// Test: Cannot write trailers before body
-	buf = &bytes.Buffer{}
-	w = NewWriter(buf)
-	err = w.WriteStatusLine(StatusOk)
-	require.NoError(t, err)
-	h = headers.Headers{Header: map[string]string{"Content-Type": "text/plain"}}
-	err = w.WriteHeaders(h)
-	require.NoError(t, err)
-	trailers := headers.Headers{Header: map[string]string{"X-Test": "value"}}
-	err = w.WriteTrailers(trailers)
+	// Can't write status again
+	err = w.WriteStatusLine(StatusOK)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already written")
+
+	// Can't write body before headers
+	err = w.WriteBody([]byte("test"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "headers")
 }
 
-func TestCompleteChunkedResponseWithTrailers(t *testing.T) {
-	// Test: Complete end-to-end chunked response with trailers
-	buf := &bytes.Buffer{}
-	w := NewWriter(buf)
+func TestTextResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
 
-	err := w.WriteStatusLine(StatusOk)
+	err := w.TextResponse(StatusOK, "Hello, World!")
 	require.NoError(t, err)
 
-	h := headers.Headers{
-		Header: map[string]string{
-			"Transfer-Encoding": "chunked",
-			"Content-Type":      "application/json",
-			"Trailer":           "X-Content-SHA256, X-Content-Length",
-		},
-	}
+	result := buf.String()
+	assert.Contains(t, result, "200 OK")
+	assert.Contains(t, result, "content-type: text/plain")
+	assert.Contains(t, result, "content-length: 13")
+	assert.Contains(t, result, "Hello, World!")
+}
+
+func TestHTMLResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	html := "<html><body>Test</body></html>"
+	err := w.HTMLResponse(StatusOK, html)
+	require.NoError(t, err)
+
+	result := buf.String()
+	assert.Contains(t, result, "text/html")
+	assert.Contains(t, result, html)
+}
+
+func TestJSONResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	json := `{"status":"ok"}`
+	err := w.JSONResponse(StatusOK, json)
+	require.NoError(t, err)
+
+	result := buf.String()
+	assert.Contains(t, result, "application/json")
+	assert.Contains(t, result, json)
+}
+
+func TestErrorResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	err := w.ErrorResponse(StatusNotFound, "Page not found")
+	require.NoError(t, err)
+
+	result := buf.String()
+	assert.Contains(t, result, "404")
+	assert.Contains(t, result, "Page not found")
+}
+
+func TestNoContentResponse(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	err := w.NoContentResponse()
+	require.NoError(t, err)
+
+	result := buf.String()
+	assert.Contains(t, result, "204 No Content")
+	// Should have headers but no body
+	assert.True(t, strings.HasSuffix(result, "\r\n\r\n"))
+}
+
+func TestContentLengthTracking(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	err := w.WriteStatusLine(StatusOK)
+	require.NoError(t, err)
+
+	h := headers.NewHeaders()
+	h.Set("Content-Length", "42")
 	err = w.WriteHeaders(h)
 	require.NoError(t, err)
 
-	// Write chunks
-	fullBody := []byte{}
-	chunks := []string{
-		`{"id": 0}`,
-		`{"id": 1}`,
-		`{"id": 2}`,
-	}
+	assert.True(t, w.HasContentLength())
+	assert.False(t, w.IsChunked())
+}
 
-	for _, chunk := range chunks {
-		data := []byte(chunk + "\n")
-		fullBody = append(fullBody, data...)
-		_, err = w.WriteChunkedBody(data)
-		require.NoError(t, err)
-	}
+func TestChunkedTracking(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
 
-	_, err = w.WriteChunkedBodyDone()
+	err := w.WriteStatusLine(StatusOK)
 	require.NoError(t, err)
 
-	// Calculate hash and write trailers
-	hash := sha256.Sum256(fullBody)
-	trailers := headers.Headers{
-		Header: map[string]string{
-			"X-Content-SHA256": fmt.Sprintf("%x", hash),
-			"X-Content-Length": fmt.Sprintf("%d", len(fullBody)),
-		},
-	}
-	err = w.WriteTrailers(trailers)
+	h := headers.NewHeaders()
+	h.Set("Transfer-Encoding", "chunked")
+	err = w.WriteHeaders(h)
 	require.NoError(t, err)
 
-	got := buf.String()
+	assert.True(t, w.IsChunked())
+	assert.False(t, w.HasContentLength())
+}
 
-	// Verify structure
-	assert.Contains(t, got, "HTTP/1.1 200 OK\r\n")
-	assert.Contains(t, got, "Transfer-Encoding: chunked")
-	assert.Contains(t, got, "0\r\n") // Final zero chunk
-	assert.Contains(t, got, "X-Content-SHA256:")
-	assert.Contains(t, got, "X-Content-Length: 30")
+func TestMultipleHeaderValues(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
 
-	t.Logf("Complete response:\n%s", got)
+	err := w.WriteStatusLine(StatusOK)
+	require.NoError(t, err)
+
+	h := headers.NewHeaders()
+	h.Add("Set-Cookie", "session=abc")
+	h.Add("Set-Cookie", "user=xyz")
+	err = w.WriteHeaders(h)
+	require.NoError(t, err)
+
+	result := buf.String()
+	// Both Set-Cookie headers should be present
+	assert.Contains(t, result, "set-cookie: session=abc")
+	assert.Contains(t, result, "set-cookie: user=xyz")
+}
+
+func TestEmptyBody(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	err := w.WriteStatusLine(StatusOK)
+	require.NoError(t, err)
+
+	h := headers.NewHeaders()
+	h.Set("Content-Length", "0")
+	err = w.WriteHeaders(h)
+	require.NoError(t, err)
+
+	err = w.WriteBody([]byte{})
+	require.NoError(t, err)
+
+	result := buf.String()
+	// Should end with headers, no body content
+	assert.True(t, strings.HasSuffix(result, "\r\n\r\n"))
+}
+
+func TestErrorTracking(t *testing.T) {
+	// Use a failing writer
+	w := NewWriter(&failWriter{})
+
+	assert.False(t, w.HadError())
+
+	_ = w.WriteStatusLine(StatusOK)
+	assert.True(t, w.HadError())
+}
+
+// failWriter always returns an error
+type failWriter struct{}
+
+func (f *failWriter) Write(p []byte) (int, error) {
+	return 0, assert.AnError
 }

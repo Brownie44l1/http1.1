@@ -5,23 +5,20 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"http1.1/internal/request"
 	"http1.1/internal/response"
 )
 
 type Server struct {
-	handler  Handler
-	listener net.Listener
-	closed   atomic.Bool
+	handler     Handler
+	listener    net.Listener
+	closed      atomic.Bool
+	ReadTimeout time.Duration
 }
 
 type Handler func(w *response.Writer, r *request.Request)
-
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
 
 func Serve(port uint16, handler Handler) (*Server, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -30,8 +27,9 @@ func Serve(port uint16, handler Handler) (*Server, error) {
 	}
 
 	s := &Server{
-		handler:  handler,
-		listener: listener,
+		handler:     handler,
+		listener:    listener,
+		ReadTimeout: 30 * time.Second,
 	}
 
 	go s.listen()
@@ -48,25 +46,10 @@ func (s *Server) listen() {
 			log.Printf("Error accepting connection: %v\n", err)
 			continue
 		}
-		go s.handle(conn)
+
+		// Just spawn the connection handler
+		go s.serveConn(conn)
 	}
-}
-
-func (s *Server) handle(conn net.Conn) {
-	defer conn.Close()
-	req, err := request.RequestFromReader(conn)
-
-	if err != nil {
-		w := response.NewWriter(conn)
-		w.WriteStatusLine(response.StatusBadRequest)
-		headers := response.GetDefaultHeaders(len(err.Error()))
-		w.WriteHeaders(headers)
-		w.WriteBody([]byte(err.Error()))
-		return
-	}
-
-	w := response.NewWriter(conn)
-	s.handler(w, req)
 }
 
 func (s *Server) Close() error {
