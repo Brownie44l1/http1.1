@@ -12,8 +12,6 @@ var (
 	ErrUnsupportedVersion   = errors.New("unsupported HTTP version")
 )
 
-var crlf = []byte("\r\n")
-
 // parseRequestLine parses: METHOD PATH VERSION\r\n
 // Returns: method, path, version, bytesConsumed, error
 func parseRequestLine(data []byte) (string, string, string, int, error) {

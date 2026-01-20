@@ -18,14 +18,16 @@ const (
 
 // parser handles incremental parsing of HTTP requests
 type parser struct {
-	state  parserState
-	buffer []byte  // Accumulates data between reads
+	state       parserState
+	buffer      []byte  // Accumulates data between reads
+	chunkParser *chunkParser  // For chunked encoding
 }
 
 func newParser() *parser {
 	return &parser{
-		state:  stateRequestLine,
-		buffer: make([]byte, 0, 4096), // Start with 4KB
+		state:       stateRequestLine,
+		buffer:      make([]byte, 0, 4096), // Start with 4KB
+		chunkParser: &chunkParser{},
 	}
 }
 
@@ -90,7 +92,6 @@ func (p *parser) parse(data []byte, req *Request) (int, error) {
 	}
 }
 
-// parseRequestLine parses the first line: METHOD PATH VERSION
 func (p *parser) parseRequestLine(data []byte, req *Request) (int, error) {
 	method, path, version, consumed, err := parseRequestLine(data)
 	if err != nil {
@@ -176,7 +177,7 @@ func (p *parser) parseFixedBody(data []byte, req *Request) (int, error) {
 
 // parseChunkedBody reads Transfer-Encoding: chunked body
 func (p *parser) parseChunkedBody(data []byte, req *Request) (int, error) {
-	consumed, done, err := parseChunked(data, &req.Body)
+	consumed, done, err := parseChunkedIncremental(data, &req.Body, p.chunkParser, maxTotalBodySize)
 	if err != nil {
 		return 0, err
 	}
@@ -186,11 +187,4 @@ func (p *parser) parseChunkedBody(data []byte, req *Request) (int, error) {
 	}
 	
 	return consumed, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

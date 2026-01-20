@@ -1,4 +1,4 @@
-module http1.1
+module github.com/Brownie44l1/http1.1
 
 go 1.22.2
 

@@ -3,45 +3,45 @@ package request
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strconv"
 )
 
-// Chunked transfer encoding format:
-// 
-// <chunk-size in hex>\r\n
-// <chunk-data>\r\n
-// <chunk-size in hex>\r\n
-// <chunk-data>\r\n
-// 0\r\n
-// \r\n
-
 type chunkParser struct {
-	state      chunkState
-	chunkSize  int    // Current chunk size being read
-	chunkRead  int    // Bytes read of current chunk
+	state       chunkState
+	chunkSize   int
+	chunkRead   int
+	totalBodySize int64  // Track total
 }
 
 type chunkState int
 
 const (
-	chunkStateSize chunkState = iota  // Reading chunk size line
-	chunkStateData                     // Reading chunk data
-	chunkStateDataCRLF                 // Reading CRLF after chunk data
-	chunkStateTrailer                  // Reading trailer headers (after last chunk)
-	chunkStateDone                     // All chunks read
+	chunkStateSize chunkState = iota
+	chunkStateData
+	chunkStateDataCRLF
+	chunkStateTrailer
+	chunkStateDone
 )
 
 var (
-	ErrInvalidChunkSize = errors.New("invalid chunk size")
-	ErrChunkTooLarge    = errors.New("chunk size too large")
+	ErrInvalidChunkSize     = errors.New("invalid chunk size")
+	ErrChunkTooLarge        = errors.New("chunk size too large")
+	ErrChunkSizeLineTooLong = errors.New("chunk size line too long")
+	ErrBodyTooLarge         = errors.New("chunked body exceeds maximum size")
+	ErrInvalidChunkFormat   = errors.New("invalid chunk format")
+	crlf                    = []byte("\r\n")
 )
 
-const maxChunkSize = 10 * 1024 * 1024 // 10MB max per chunk
+const (
+	maxChunkSize       = 10 * 1024 * 1024    // 10MB per chunk
+	maxTotalBodySize   = 50 * 1024 * 1024    // 50MB total
+	maxChunkSizeLine   = 1024                // 1KB for size line
+)
 
-// parseChunked parses chunked transfer encoding
-// Returns: bytesConsumed, done, error
-func parseChunked(data []byte, body *[]byte) (int, bool, error) {
-	parser := &chunkParser{state: chunkStateSize}
+// parseChunkedIncremental parses chunked data incrementally
+// Parser state must be preserved across calls!
+func parseChunkedIncremental(data []byte, body *[]byte, parser *chunkParser, maxBodySize int64) (int, bool, error) {
 	consumed := 0
 	
 	for consumed < len(data) {
@@ -58,7 +58,7 @@ func parseChunked(data []byte, body *[]byte) (int, bool, error) {
 			consumed += n
 			
 			if parser.chunkSize == 0 {
-				// Last chunk
+				// Last chunk (0\r\n)
 				parser.state = chunkStateTrailer
 			} else {
 				parser.state = chunkStateData
@@ -70,14 +70,20 @@ func parseChunked(data []byte, body *[]byte) (int, bool, error) {
 			available := len(data[consumed:])
 			toRead := min(remaining, available)
 			
+			// Check total body size limit
+			if parser.totalBodySize + int64(toRead) > maxBodySize {
+				return consumed, false, ErrBodyTooLarge
+			}
+			
 			*body = append(*body, data[consumed:consumed+toRead]...)
 			consumed += toRead
 			parser.chunkRead += toRead
+			parser.totalBodySize += int64(toRead)
 			
 			if parser.chunkRead == parser.chunkSize {
 				parser.state = chunkStateDataCRLF
 			} else {
-				// Need more data
+				// Need more data for chunk
 				return consumed, false, nil
 			}
 			
@@ -88,15 +94,13 @@ func parseChunked(data []byte, body *[]byte) (int, bool, error) {
 			}
 			
 			if data[consumed] != '\r' || data[consumed+1] != '\n' {
-				return consumed, false, errors.New("missing CRLF after chunk data")
+				return consumed, false, ErrInvalidChunkFormat
 			}
 			
 			consumed += 2
-			parser.state = chunkStateSize
+			parser.state = chunkStateSize  // Next chunk
 			
 		case chunkStateTrailer:
-			// After the last chunk (0\r\n), there might be trailer headers
-			// For now, we just look for the final \r\n
 			if len(data[consumed:]) < 2 {
 				return consumed, false, nil
 			}
@@ -107,13 +111,22 @@ func parseChunked(data []byte, body *[]byte) (int, bool, error) {
 				return consumed, true, nil
 			}
 			
-			// There are trailer headers - skip them for now
-			// TODO: Parse trailer headers properly
 			idx := bytes.Index(data[consumed:], []byte("\r\n\r\n"))
 			if idx == -1 {
+				// Check if we've buffered too much without finding end
+				if len(data[consumed:]) > maxChunkSizeLine {
+					return consumed, false, errors.New("trailer headers too large")
+				}
+				// Need more data
 				return consumed, false, nil
 			}
-			consumed += idx + 4
+			
+			trailers := data[consumed:consumed+idx]
+			if bytes.ContainsAny(trailers, "\x00") {
+				return consumed, false, errors.New("null byte in trailer headers")
+			}
+			
+			consumed += idx + 4  // Skip trailers + \r\n\r\n
 			parser.state = chunkStateDone
 			return consumed, true, nil
 			
@@ -125,10 +138,16 @@ func parseChunked(data []byte, body *[]byte) (int, bool, error) {
 	return consumed, false, nil
 }
 
-// parseChunkSize parses the chunk size line: SIZE\r\n
+// parseChunkSize parses the chunk size line: SIZE[;extensions]\r\n
 func (p *chunkParser) parseChunkSize(data []byte) (int, error) {
-	idx := bytes.Index(data, crlf)
+	// Limit search to prevent DoS
+	searchLimit := min(len(data), maxChunkSizeLine)
+	
+	idx := bytes.Index(data[:searchLimit], crlf)
 	if idx == -1 {
+		if len(data) >= maxChunkSizeLine {
+			return 0, ErrChunkSizeLineTooLong
+		}
 		// Need more data
 		return 0, nil
 	}
@@ -136,14 +155,20 @@ func (p *chunkParser) parseChunkSize(data []byte) (int, error) {
 	sizeLine := data[:idx]
 	
 	// Chunk size might have extensions: SIZE;name=value
-	// We ignore extensions for now
+	// We ignore extensions but validate format
 	parts := bytes.SplitN(sizeLine, []byte(";"), 2)
 	sizeHex := string(bytes.TrimSpace(parts[0]))
 	
-	// Parse hex size
+	if len(parts) > 1 {
+		ext := parts[1]
+		if bytes.ContainsAny(ext, "\r\n\x00") {
+			return 0, errors.New("invalid characters in chunk extension")
+		}
+	}
+	
 	size, err := strconv.ParseInt(sizeHex, 16, 64)
 	if err != nil {
-		return 0, ErrInvalidChunkSize
+		return 0, fmt.Errorf("%w: %v", ErrInvalidChunkSize, err)
 	}
 	
 	if size < 0 {
@@ -155,17 +180,5 @@ func (p *chunkParser) parseChunkSize(data []byte) (int, error) {
 	}
 	
 	p.chunkSize = int(size)
-	return idx + 2, nil
-}
-
-// parseInt64 safely parses an int64 from a string
-func parseInt64(s string) (int64, error) {
-	val, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return -1, err
-	}
-	if val < 0 {
-		return -1, errors.New("negative value not allowed")
-	}
-	return val, nil
+	return idx + 2, nil 
 }

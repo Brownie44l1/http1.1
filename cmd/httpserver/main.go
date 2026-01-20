@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"http1.1/internal/request"
-	"http1.1/internal/response"
-	"http1.1/internal/server"
+	"github.com/Brownie44l1/http1.1/internal/request"
+	"github.com/Brownie44l1/http1.1/internal/response"
+	"github.com/Brownie44l1/http1.1/internal/server"
 )
 
 func main() {

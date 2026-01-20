@@ -2,8 +2,9 @@ package request
 
 import (
 	"io"
+	"strconv"
 	
-	"http1.1/internal/headers"
+	"github.com/Brownie44l1/http1.1/internal/headers"
 )
 
 // Request represents a parsed HTTP request
@@ -82,4 +83,9 @@ func (r *Request) IsChunked() bool {
 		return false
 	}
 	return te == "chunked"
+}
+
+// parseInt64 parses a string to int64
+func parseInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
 }

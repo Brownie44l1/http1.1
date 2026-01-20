@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"http1.1/internal/headers"
+	"github.com/Brownie44l1/http1.1/internal/headers"
 )
 
 // StatusCode represents HTTP status codes
