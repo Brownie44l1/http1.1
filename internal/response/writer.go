@@ -3,6 +3,7 @@ package response
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/Brownie44l1/http1.1/internal/headers"
 )
@@ -44,7 +45,7 @@ type Writer struct {
 	w             io.Writer
 	state         writerState
 	statusCode    StatusCode
-	contentLength int64  // -1 means unknown
+	contentLength int64 // -1 means unknown
 	isChunked     bool
 	hadError      bool
 }
@@ -89,7 +90,7 @@ func (w *Writer) WriteHeaders(h *headers.Headers) error {
 
 	// Track important headers for connection management
 	if cl, ok := h.Get("content-length"); ok {
-		if length, err := parseInt64(cl); err == nil {
+		if length, err := strconv.ParseInt(cl, 10, 64); err == nil {
 			w.contentLength = length
 		}
 	}
@@ -235,18 +236,4 @@ func (w *Writer) IsChunked() bool {
 
 func (w *Writer) StatusCode() StatusCode {
 	return w.statusCode
-}
-
-// Helper functions
-
-func parseInt64(s string) (int64, error) {
-	var val int64
-	_, err := fmt.Sscanf(s, "%d", &val)
-	if err != nil {
-		return -1, err
-	}
-	if val < 0 {
-		return -1, fmt.Errorf("negative value")
-	}
-	return val, nil
 }

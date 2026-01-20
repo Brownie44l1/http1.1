@@ -1,8 +1,8 @@
 package server
 
 import (
-	"http1.1/internal/request"
-	"http1.1/internal/response"
+	"github.com/Brownie44l1/http1.1/internal/request"
+	"github.com/Brownie44l1/http1.1/internal/response"
 )
 
 // shouldCloseConnection determines if connection should be closed after this request
