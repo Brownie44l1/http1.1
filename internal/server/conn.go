@@ -13,12 +13,15 @@ import (
 // handleConnection processes a single TCP connection
 func handleConnection(conn net.Conn, handler Handler, config *Config) {
 	defer conn.Close()
-
+	
 	// Set initial read deadline
 	if config.ReadTimeout > 0 {
-		conn.SetReadDeadline(time.Now().Add(config.ReadTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(config.ReadTimeout)); err != nil {
+			log.Printf("Failed to set read deadline: %v", err)
+			return
+		}
 	}
-
+	
 	// Process requests in a loop (for keep-alive)
 	for {
 		// Parse the request
@@ -29,7 +32,7 @@ func handleConnection(conn net.Conn, handler Handler, config *Config) {
 				// Client closed connection - this is normal
 				return
 			}
-
+			
 			// Check for timeout or other connection errors
 			if netErr, ok := err.(net.Error); ok {
 				if netErr.Timeout() {
@@ -37,36 +40,44 @@ func handleConnection(conn net.Conn, handler Handler, config *Config) {
 					return
 				}
 			}
-
+			
 			// For other errors, log and try to send error response
 			log.Printf("Error parsing request: %v", err)
 			w := response.NewWriter(conn)
-			w.ErrorResponse(response.StatusBadRequest, "Invalid request")
+			if err := w.ErrorResponse(response.StatusBadRequest, "Invalid request"); err != nil {
+				log.Printf("Failed to send error response: %v", err)
+			}
 			return
 		}
-
+		
 		// Create response writer
 		w := response.NewWriter(conn)
-
+		
 		// Create context
 		ctx := NewContext(req, w)
-
+		
 		// Set write deadline
 		if config.WriteTimeout > 0 {
-			conn.SetWriteDeadline(time.Now().Add(config.WriteTimeout))
+			if err := conn.SetWriteDeadline(time.Now().Add(config.WriteTimeout)); err != nil {
+				log.Printf("Failed to set write deadline: %v", err)
+				return
+			}
 		}
-
+		
 		// Call the handler
 		handler.ServeHTTP(ctx)
-
+		
 		// Check if we should keep the connection alive
 		if !shouldKeepAlive(req, w) {
 			return
 		}
-
+		
 		// Reset read deadline for next request
 		if config.IdleTimeout > 0 {
-			conn.SetReadDeadline(time.Now().Add(config.IdleTimeout))
+			if err := conn.SetReadDeadline(time.Now().Add(config.IdleTimeout)); err != nil {
+				log.Printf("Failed to set idle deadline: %v", err)
+				return
+			}
 		}
 	}
 }
@@ -77,13 +88,13 @@ func shouldKeepAlive(req *request.Request, w *response.Writer) bool {
 	if w.HadError() {
 		return false
 	}
-
+	
 	// HTTP/1.0 closes by default unless "Connection: keep-alive"
 	if req.IsHTTP10() {
 		conn, ok := req.Headers.Get("connection")
 		return ok && conn == "keep-alive"
 	}
-
+	
 	// HTTP/1.1 keeps alive by default unless "Connection: close"
 	conn, ok := req.Headers.Get("connection")
 	return !ok || conn != "close"
