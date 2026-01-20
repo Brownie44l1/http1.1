@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"log"
 	"net"
 	"time"
@@ -23,8 +24,22 @@ func handleConnection(conn net.Conn, handler Handler, config *Config) {
 		// Parse the request
 		req, err := request.RequestFromReader(conn)
 		if err != nil {
+			// EOF and connection closed errors are normal for keep-alive
+			if err == io.EOF {
+				// Client closed connection - this is normal
+				return
+			}
+			
+			// Check for timeout or other connection errors
+			if netErr, ok := err.(net.Error); ok {
+				if netErr.Timeout() {
+					// Timeout is normal for idle connections
+					return
+				}
+			}
+			
+			// For other errors, log and try to send error response
 			log.Printf("Error parsing request: %v", err)
-			// Try to send error response
 			w := response.NewWriter(conn)
 			w.ErrorResponse(response.StatusBadRequest, "Invalid request")
 			return
