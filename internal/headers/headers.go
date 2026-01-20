@@ -28,7 +28,7 @@ const (
 
 type Headers struct {
 	headers map[string][]string
-	
+
 	// Track special headers for validation
 	tracking *headerTracking
 }
@@ -108,7 +108,7 @@ func (h *Headers) Parse(data []byte) (int, bool, error) {
 		if h.tracking.headerCount >= MaxHeaderLines {
 			return read, false, ErrTooManyHeaders
 		}
-		
+
 		// Check total header size
 		if h.tracking.totalSize >= MaxHeaderSize {
 			return read, false, ErrHeaderTooLarge
@@ -148,7 +148,7 @@ func (h *Headers) Parse(data []byte) (int, bool, error) {
 		h.tracking.headerCount++
 		read += idx + 2
 	}
-	
+
 	// Final validation after all headers parsed
 	if done {
 		if err := h.validateFinal(); err != nil {
@@ -162,7 +162,7 @@ func (h *Headers) Parse(data []byte) (int, bool, error) {
 // addWithValidation adds header with security validation
 func (h *Headers) addWithValidation(name, value string) error {
 	nameLower := strings.ToLower(name)
-	
+
 	switch nameLower {
 	case "host":
 		if h.tracking.seenHost {
@@ -170,39 +170,39 @@ func (h *Headers) addWithValidation(name, value string) error {
 		}
 		h.tracking.seenHost = true
 		h.headers[nameLower] = []string{value}
-		
+
 	case "content-length":
 		cl, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || cl < 0 {
 			return fmt.Errorf("invalid Content-Length: %w", err)
 		}
-		
+
 		if h.tracking.seenContentLength {
 			if h.tracking.contentLengthValue != cl {
 				return ErrConflictingContentLength
 			}
 			return nil
 		}
-		
+
 		h.tracking.seenContentLength = true
 		h.tracking.contentLengthValue = cl
 		h.headers[nameLower] = []string{value}
-		
+
 	case "transfer-encoding":
 		if h.tracking.seenTransferEncoding {
 			return ErrDuplicateTransferEncoding
 		}
 		h.tracking.seenTransferEncoding = true
-		
+
 		if strings.ToLower(strings.TrimSpace(value)) == "chunked" {
 			h.tracking.isChunked = true
 		}
 		h.headers[nameLower] = []string{value}
-		
+
 	default:
 		h.headers[nameLower] = append(h.headers[nameLower], value)
 	}
-	
+
 	return nil
 }
 
@@ -210,7 +210,7 @@ func (h *Headers) validateFinal() error {
 	if h.tracking.isChunked && h.tracking.seenContentLength {
 		return ErrBothChunkedAndLength
 	}
-	
+
 	return nil
 }
 

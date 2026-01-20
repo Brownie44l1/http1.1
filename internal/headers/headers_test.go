@@ -64,14 +64,14 @@ func TestHeaderParse(t *testing.T) {
 	data = []byte("Host : localhost\r\n")
 	n, done, err = h.Parse(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "whitespace")
+	assert.Contains(t, err.Error(), "malformed")
 
 	// Test: Whitespace in middle of name (invalid)
 	h = NewHeaders()
 	data = []byte("Ho st: localhost\r\n")
 	n, done, err = h.Parse(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "whitespace")
+	assert.Contains(t, err.Error(), "malformed")
 
 	// Test: Case insensitive storage
 	h = NewHeaders()
@@ -98,7 +98,7 @@ func TestHeaderParse(t *testing.T) {
 	data = []byte("InvalidHeader\r\n")
 	n, done, err = h.Parse(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no colon")
+	assert.Contains(t, err.Error(), "malformed")
 
 	// Test: Obsolete line folding (should reject)
 	h = NewHeaders()

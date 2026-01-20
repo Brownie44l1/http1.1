@@ -8,10 +8,10 @@ const (
 	StatusSwitchingProtocols StatusCode = 101
 
 	// 2xx Success
-	StatusAccepted                 StatusCode = 202
-	StatusNonAuthoritativeInfo     StatusCode = 203
-	StatusResetContent             StatusCode = 205
-	StatusPartialContent           StatusCode = 206
+	StatusAccepted             StatusCode = 202
+	StatusNonAuthoritativeInfo StatusCode = 203
+	StatusResetContent         StatusCode = 205
+	StatusPartialContent       StatusCode = 206
 
 	// 3xx Redirection
 	StatusMultipleChoices   StatusCode = 300
@@ -24,32 +24,32 @@ const (
 	StatusPermanentRedirect StatusCode = 308
 
 	// 4xx Client Error
-	StatusUnauthorized                  StatusCode = 401
-	StatusPaymentRequired               StatusCode = 402
-	StatusForbidden                     StatusCode = 403
-	StatusMethodNotAllowed              StatusCode = 405
-	StatusNotAcceptable                 StatusCode = 406
-	StatusProxyAuthRequired             StatusCode = 407
-	StatusRequestTimeout                StatusCode = 408
-	StatusConflict                      StatusCode = 409
-	StatusGone                          StatusCode = 410
-	StatusLengthRequired                StatusCode = 411
-	StatusPreconditionFailed            StatusCode = 412
-	StatusRequestEntityTooLarge         StatusCode = 413
-	StatusRequestURITooLong             StatusCode = 414
-	StatusUnsupportedMediaType          StatusCode = 415
-	StatusRequestedRangeNotSatisfiable  StatusCode = 416
-	StatusExpectationFailed             StatusCode = 417
-	StatusTeapot                        StatusCode = 418 // RFC 2324
-	StatusUnprocessableEntity           StatusCode = 422
-	StatusTooManyRequests               StatusCode = 429
+	StatusUnauthorized                 StatusCode = 401
+	StatusPaymentRequired              StatusCode = 402
+	StatusForbidden                    StatusCode = 403
+	StatusMethodNotAllowed             StatusCode = 405
+	StatusNotAcceptable                StatusCode = 406
+	StatusProxyAuthRequired            StatusCode = 407
+	StatusRequestTimeout               StatusCode = 408
+	StatusConflict                     StatusCode = 409
+	StatusGone                         StatusCode = 410
+	StatusLengthRequired               StatusCode = 411
+	StatusPreconditionFailed           StatusCode = 412
+	StatusRequestEntityTooLarge        StatusCode = 413
+	StatusRequestURITooLong            StatusCode = 414
+	StatusUnsupportedMediaType         StatusCode = 415
+	StatusRequestedRangeNotSatisfiable StatusCode = 416
+	StatusExpectationFailed            StatusCode = 417
+	StatusTeapot                       StatusCode = 418 // RFC 2324
+	StatusUnprocessableEntity          StatusCode = 422
+	StatusTooManyRequests              StatusCode = 429
 
 	// 5xx Server Error
-	StatusNotImplemented           StatusCode = 501
-	StatusBadGateway               StatusCode = 502
-	StatusServiceUnavailable       StatusCode = 503
-	StatusGatewayTimeout           StatusCode = 504
-	StatusHTTPVersionNotSupported  StatusCode = 505
+	StatusNotImplemented          StatusCode = 501
+	StatusBadGateway              StatusCode = 502
+	StatusServiceUnavailable      StatusCode = 503
+	StatusGatewayTimeout          StatusCode = 504
+	StatusHTTPVersionNotSupported StatusCode = 505
 )
 
 func init() {

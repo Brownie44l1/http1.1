@@ -11,22 +11,22 @@ import (
 
 // Config holds server configuration
 type Config struct {
-	Addr              string        // Address to listen on (e.g., ":8080")
-	ReadTimeout       time.Duration // Max time to read request
-	WriteTimeout      time.Duration // Max time to write response
-	IdleTimeout       time.Duration // Max time for keep-alive
-	MaxHeaderBytes    int           // Max header size
-	MaxRequestBodySize int64        // Max request body size
+	Addr               string        // Address to listen on (e.g., ":8080")
+	ReadTimeout        time.Duration // Max time to read request
+	WriteTimeout       time.Duration // Max time to write response
+	IdleTimeout        time.Duration // Max time for keep-alive
+	MaxHeaderBytes     int           // Max header size
+	MaxRequestBodySize int64         // Max request body size
 }
 
 // DefaultConfig returns sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		Addr:              ":8080",
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
+		Addr:               ":8080",
+		ReadTimeout:        15 * time.Second,
+		WriteTimeout:       15 * time.Second,
+		IdleTimeout:        60 * time.Second,
+		MaxHeaderBytes:     1 << 20,  // 1MB
 		MaxRequestBodySize: 10 << 20, // 10MB
 	}
 }
@@ -36,11 +36,11 @@ type Server struct {
 	config   *Config
 	handler  Handler
 	listener net.Listener
-	
+
 	mu       sync.Mutex
 	shutdown bool
 	wg       sync.WaitGroup
-	
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -62,9 +62,9 @@ func New(config *Config, handler Handler) *Server {
 	if config == nil {
 		config = DefaultConfig()
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Server{
 		config:  config,
 		handler: handler,
@@ -79,22 +79,22 @@ func (s *Server) ListenAndServe() error {
 	if addr == "" {
 		addr = ":8080"
 	}
-	
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
-	
+
 	s.listener = listener
 	log.Printf("Server listening on %s", addr)
-	
+
 	return s.serve()
 }
 
 // serve accepts connections and handles them
 func (s *Server) serve() error {
 	defer s.listener.Close()
-	
+
 	for {
 		// Check if we're shutting down
 		s.mu.Lock()
@@ -103,7 +103,7 @@ func (s *Server) serve() error {
 			break
 		}
 		s.mu.Unlock()
-		
+
 		// Accept new connection
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -116,7 +116,7 @@ func (s *Server) serve() error {
 				continue
 			}
 		}
-		
+
 		// Handle connection in goroutine
 		s.wg.Add(1)
 		go func() {
@@ -124,7 +124,7 @@ func (s *Server) serve() error {
 			s.handleConn(conn)
 		}()
 	}
-	
+
 	// Wait for all connections to finish
 	s.wg.Wait()
 	return nil
@@ -139,24 +139,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.shutdown = true
 	s.mu.Unlock()
-	
+
 	log.Println("Server shutting down...")
-	
+
 	// Cancel context to signal all goroutines
 	s.cancel()
-	
+
 	// Close listener to stop accepting new connections
 	if s.listener != nil {
 		s.listener.Close()
 	}
-	
+
 	// Wait for existing connections with timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		log.Println("All connections closed")

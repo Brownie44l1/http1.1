@@ -3,18 +3,18 @@ package request
 import (
 	"io"
 	"strconv"
-	
+
 	"github.com/Brownie44l1/http1.1/internal/headers"
 )
 
 // Request represents a parsed HTTP request
 type Request struct {
-	Method      string
-	Path        string
-	Version     string
-	Headers     *headers.Headers
-	Body        []byte
-	
+	Method  string
+	Path    string
+	Version string
+	Headers *headers.Headers
+	Body    []byte
+
 	parser *parser
 }
 
@@ -24,11 +24,11 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		Headers: headers.NewHeaders(),
 		parser:  newParser(),
 	}
-	
+
 	if err := req.parser.parseFromReader(reader, req); err != nil {
 		return nil, err
 	}
-	
+
 	return req, nil
 }
 
@@ -51,7 +51,7 @@ func (r *Request) WantsClose() bool {
 		// HTTP/1.0 closes by default
 		return r.IsHTTP10()
 	}
-	
+
 	// Explicit "Connection: close"
 	return conn == "close"
 }
@@ -67,12 +67,12 @@ func (r *Request) ContentLength() int64 {
 	if !ok {
 		return -1
 	}
-	
+
 	length, err := parseInt64(cl)
 	if err != nil {
 		return -1
 	}
-	
+
 	return length
 }
 

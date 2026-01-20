@@ -31,14 +31,14 @@ func New() *Router {
 func (r *Router) Handle(method, path string, handler Handler) {
 	// Extract parameter names from path
 	params := extractParams(path)
-	
+
 	route := &Route{
 		Method:  method,
 		Path:    path,
 		Handler: handler,
 		Params:  params,
 	}
-	
+
 	r.routes = append(r.routes, route)
 }
 
@@ -73,19 +73,19 @@ func (r *Router) Match(method, path string) (*Route, map[string]string) {
 	if idx := strings.Index(path, "?"); idx != -1 {
 		path = path[:idx]
 	}
-	
+
 	for _, route := range r.routes {
 		// Check method
 		if route.Method != method {
 			continue
 		}
-		
+
 		// Check if path matches (with parameter support)
 		if params := matchPath(route.Path, path); params != nil {
 			return route, params
 		}
 	}
-	
+
 	return nil, nil
 }
 
@@ -98,18 +98,18 @@ func (r *Router) ServeHTTP(ctx interface{}) {
 		Path() string
 		Error(code int, msg string) error
 	}
-	
+
 	c, ok := ctx.(contextInterface)
 	if !ok {
 		return
 	}
-	
+
 	route, params := r.Match(c.Method(), c.Path())
 	if route == nil {
 		c.Error(404, "Not Found")
 		return
 	}
-	
+
 	// Set params on context if it supports it
 	type paramSetter interface {
 		SetParams(map[string]string)
@@ -117,7 +117,7 @@ func (r *Router) ServeHTTP(ctx interface{}) {
 	if ps, ok := ctx.(paramSetter); ok {
 		ps.SetParams(params)
 	}
-	
+
 	// Call the handler
 	route.Handler(ctx)
 }
@@ -127,13 +127,13 @@ func (r *Router) ServeHTTP(ctx interface{}) {
 func extractParams(path string) []string {
 	parts := strings.Split(path, "/")
 	params := make([]string, 0)
-	
+
 	for _, part := range parts {
 		if strings.HasPrefix(part, ":") {
 			params = append(params, part[1:])
 		}
 	}
-	
+
 	return params
 }
 
@@ -142,18 +142,18 @@ func extractParams(path string) []string {
 func matchPath(pattern, path string) map[string]string {
 	patternParts := strings.Split(pattern, "/")
 	pathParts := strings.Split(path, "/")
-	
+
 	// Must have same number of parts
 	if len(patternParts) != len(pathParts) {
 		return nil
 	}
-	
+
 	params := make(map[string]string)
-	
+
 	for i := 0; i < len(patternParts); i++ {
 		patternPart := patternParts[i]
 		pathPart := pathParts[i]
-		
+
 		if strings.HasPrefix(patternPart, ":") {
 			// This is a parameter
 			paramName := patternPart[1:]
@@ -163,6 +163,6 @@ func matchPath(pattern, path string) map[string]string {
 			return nil
 		}
 	}
-	
+
 	return params
 }
