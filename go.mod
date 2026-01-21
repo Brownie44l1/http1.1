@@ -1,6 +1,6 @@
 module github.com/Brownie44l1/http1.1
 
-go 1.22.2
+go 1.24.0
 
 require github.com/stretchr/testify v1.11.1
 

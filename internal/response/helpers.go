@@ -1,5 +1,5 @@
-package response
-
+ package response
+/*
 import (
 	"fmt"
 
@@ -135,3 +135,4 @@ func (w *Writer) BytesResponse(code StatusCode, contentType string, data []byte)
 
 	return w.WriteBody(data)
 }
+ */

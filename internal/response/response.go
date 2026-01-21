@@ -1,5 +1,5 @@
- package response
-/*
+package response
+
 import (
 	"fmt"
 	"io"
@@ -15,9 +15,19 @@ const (
 	StatusOK                  StatusCode = 200
 	StatusCreated             StatusCode = 201
 	StatusNoContent           StatusCode = 204
+	StatusMovedPermanently    StatusCode = 301
+	StatusFound               StatusCode = 302
+	StatusSeeOther            StatusCode = 303
+	StatusTemporaryRedirect   StatusCode = 307
+	StatusPermanentRedirect   StatusCode = 308
 	StatusBadRequest          StatusCode = 400
+	StatusUnauthorized        StatusCode = 401
+	StatusForbidden           StatusCode = 403
 	StatusNotFound            StatusCode = 404
+	StatusMethodNotAllowed    StatusCode = 405
 	StatusInternalServerError StatusCode = 500
+	StatusBadGateway          StatusCode = 502
+	StatusServiceUnavailable  StatusCode = 503
 )
 
 // statusText maps status codes to reason phrases
@@ -25,9 +35,19 @@ var statusText = map[StatusCode]string{
 	StatusOK:                  "OK",
 	StatusCreated:             "Created",
 	StatusNoContent:           "No Content",
+	StatusMovedPermanently:    "Moved Permanently",
+	StatusFound:               "Found",
+	StatusSeeOther:            "See Other",
+	StatusTemporaryRedirect:   "Temporary Redirect",
+	StatusPermanentRedirect:   "Permanent Redirect",
 	StatusBadRequest:          "Bad Request",
+	StatusUnauthorized:        "Unauthorized",
+	StatusForbidden:           "Forbidden",
 	StatusNotFound:            "Not Found",
+	StatusMethodNotAllowed:    "Method Not Allowed",
 	StatusInternalServerError: "Internal Server Error",
+	StatusBadGateway:          "Bad Gateway",
+	StatusServiceUnavailable:  "Service Unavailable",
 }
 
 // writerState tracks what's been written so far
@@ -220,6 +240,79 @@ func (w *Writer) WriteTrailers(h *headers.Headers) error {
 	return err
 }
 
+// Helper methods for common responses
+
+// TextResponse sends a plain text response
+func (w *Writer) TextResponse(code StatusCode, text string) error {
+	h := headers.NewHeaders()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Content-Length", strconv.Itoa(len(text)))
+
+	if err := w.WriteStatusLine(code); err != nil {
+		return err
+	}
+	if err := w.WriteHeaders(h); err != nil {
+		return err
+	}
+	return w.WriteBody([]byte(text))
+}
+
+// HTMLResponse sends an HTML response
+func (w *Writer) HTMLResponse(code StatusCode, html string) error {
+	h := headers.NewHeaders()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Length", strconv.Itoa(len(html)))
+
+	if err := w.WriteStatusLine(code); err != nil {
+		return err
+	}
+	if err := w.WriteHeaders(h); err != nil {
+		return err
+	}
+	return w.WriteBody([]byte(html))
+}
+
+// JSONResponse sends a JSON response
+func (w *Writer) JSONResponse(code StatusCode, json string) error {
+	h := headers.NewHeaders()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("Content-Length", strconv.Itoa(len(json)))
+
+	if err := w.WriteStatusLine(code); err != nil {
+		return err
+	}
+	if err := w.WriteHeaders(h); err != nil {
+		return err
+	}
+	return w.WriteBody([]byte(json))
+}
+
+// ErrorResponse sends an error response
+func (w *Writer) ErrorResponse(code StatusCode, message string) error {
+	return w.TextResponse(code, message)
+}
+
+// RedirectResponse sends a redirect response
+func (w *Writer) RedirectResponse(code StatusCode, location string) error {
+	h := headers.NewHeaders()
+	h.Set("Location", location)
+	h.Set("Content-Length", "0")
+
+	if err := w.WriteStatusLine(code); err != nil {
+		return err
+	}
+	return w.WriteHeaders(h)
+}
+
+// NoContentResponse sends a 204 No Content response
+func (w *Writer) NoContentResponse() error {
+	h := headers.NewHeaders()
+	if err := w.WriteStatusLine(StatusNoContent); err != nil {
+		return err
+	}
+	return w.WriteHeaders(h)
+}
+
 // State tracking methods for connection management
 
 func (w *Writer) HadError() bool {
@@ -237,4 +330,3 @@ func (w *Writer) IsChunked() bool {
 func (w *Writer) StatusCode() StatusCode {
 	return w.statusCode
 }
- */

@@ -1,5 +1,5 @@
-package response
-
+ package response
+/*
 // Additional HTTP status codes for comprehensive support
 
 const (
@@ -146,3 +146,4 @@ func (code StatusCode) IsServerError() bool {
 func (code StatusCode) IsError() bool {
 	return code.IsClientError() || code.IsServerError()
 }
+ */
