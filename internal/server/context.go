@@ -1,26 +1,43 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/Brownie44l1/http1.1/internal/request"
-	"github.com/Brownie44l1/http1.1/internal/response"
+	"github.com/Brownie44l1/http/internal/request"
+	"github.com/Brownie44l1/http/internal/response"
+	net "github.com/Brownie44l1/socket-wrapper"
 )
 
 // Context provides a convenient interface for handling requests and responses
 type Context struct {
-	Request  *request.Request
-	Response *response.Writer
-	Params   map[string]string // Path parameters (e.g., /users/:id)
+	Request   *request.Request
+	Response  *response.Writer
+	Params    map[string]string // Path parameters (e.g., /users/:id)
+	RequestID string            // ✅ Issue #8: Request ID for tracing
+
+	// ✅ Issue #6: For connection hijacking (WebSockets)
+	conn     net.Conn
+	hijacked bool
 }
 
 // NewContext creates a new context
-func NewContext(req *request.Request, resp *response.Writer) *Context {
+func NewContext(req *request.Request, resp *response.Writer, conn net.Conn) *Context {
+	// ✅ Issue #8: Extract or generate request ID
+	requestID, _ := req.Headers.Get("x-request-id")
+	if requestID == "" {
+		requestID = generateRequestID()
+	}
+
 	return &Context{
-		Request:  req,
-		Response: resp,
-		Params:   make(map[string]string),
+		Request:   req,
+		Response:  resp,
+		Params:    make(map[string]string),
+		RequestID: requestID,
+		conn:      conn,
+		hijacked:  false,
 	}
 }
 
@@ -40,13 +57,17 @@ func (c *Context) Header(key string) string {
 	return val
 }
 
+// SetParams sets path parameters (called by router)
+func (c *Context) SetParams(params map[string]string) {
+	c.Params = params
+}
+
 // Param gets a path parameter by name
 func (c *Context) Param(name string) string {
 	return c.Params[name]
 }
 
 // Query gets a query parameter (basic implementation)
-// For full query parsing, you'd need to parse the URL query string
 func (c *Context) Query(key string) string {
 	// Simple implementation - parse query from path
 	path := c.Request.Path
@@ -114,4 +135,67 @@ func (c *Context) Status(code response.StatusCode) error {
 func (c *Context) String(code response.StatusCode, format string, values ...interface{}) error {
 	text := fmt.Sprintf(format, values...)
 	return c.Text(code, text)
+}
+
+// ✅ Issue #6: Hijack takes over the underlying connection (for WebSockets)
+func (c *Context) Hijack() (net.Conn, error) {
+	if c.hijacked {
+		return nil, errors.New("connection already hijacked")
+	}
+
+	if c.conn == nil {
+		return nil, errors.New("no underlying connection")
+	}
+
+	c.hijacked = true
+	return c.conn, nil
+}
+
+// IsHijacked returns true if the connection has been hijacked
+func (c *Context) IsHijacked() bool {
+	return c.hijacked
+}
+
+// IsWebSocketUpgrade checks if this is a WebSocket upgrade request
+func (c *Context) IsWebSocketUpgrade() bool {
+	upgrade := strings.ToLower(c.Header("Upgrade"))
+	connection := strings.ToLower(c.Header("Connection"))
+
+	return upgrade == "websocket" && strings.Contains(connection, "upgrade")
+}
+
+// GetClientIP returns the client IP address
+func (c *Context) GetClientIP() string {
+	// Check X-Forwarded-For header first
+	if xff := c.Header("X-Forwarded-For"); xff != "" {
+		// Take first IP
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := c.Header("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to remote address from connection
+	if c.conn != nil {
+		addr := c.conn.RemoteAddr()
+		// Strip port
+		if idx := strings.LastIndex(addr, ":"); idx != -1 {
+			return addr[:idx]
+		}
+		return addr
+	}
+
+	return ""
+}
+
+// generateRequestID generates a unique request ID
+func generateRequestID() string {
+	// Simple implementation - use timestamp + random
+	// For production, use UUID or similar
+	return fmt.Sprintf("req-%d", time.Now().UnixNano())
 }

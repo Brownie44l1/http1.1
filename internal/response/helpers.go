@@ -3,7 +3,7 @@
 import (
 	"fmt"
 
-	"github.com/Brownie44l1/http1.1/internal/headers"
+	"github.com/Brownie44l1/http/internal/headers"
 )
 
 // TextResponse writes a simple text response

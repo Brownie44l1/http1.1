@@ -4,7 +4,7 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/Brownie44l1/http1.1/internal/headers"
+	"github.com/Brownie44l1/http/internal/headers"
 )
 
 // Request represents a parsed HTTP request
@@ -18,17 +18,23 @@ type Request struct {
 	parser *parser
 }
 
-// RequestFromReader reads and parses a complete HTTP request from a reader
-func RequestFromReader(reader io.Reader) (*Request, error) {
-	req := &Request{
+// NewRequest creates a new Request with initialized fields
+func NewRequest() *Request {
+	return &Request{
 		Headers: headers.NewHeaders(),
-		parser:  newParser(),
+		Body:    make([]byte, 0),
 	}
+}
 
-	if err := req.parser.parseFromReader(reader, req); err != nil {
+func RequestFromReaderWithConfig(reader io.Reader, maxHeaderBytes int, maxBodySize int64) (*Request, error) {
+	req := NewRequest()
+	parser := newParser(maxBodySize)
+	
+	err := parser.parseFromReader(reader, req, maxHeaderBytes)
+	if err != nil {
 		return nil, err
 	}
-
+	
 	return req, nil
 }
 
@@ -88,4 +94,8 @@ func (r *Request) IsChunked() bool {
 // parseInt64 parses a string to int64
 func parseInt64(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
+}
+
+func RequestFromReader(reader io.Reader) (*Request, error) {
+	return RequestFromReaderWithConfig(reader, 1<<20, 10<<20)
 }

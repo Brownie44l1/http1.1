@@ -1,3 +1,7 @@
+github.com/Brownie44l1/socket-wrapper v0.0.0-20260122120848-227158156fd0 h1:SuC+1kPP66/KfGiS6XMAdv3HHKsyr9CFjBrZmlXPgWM=
+github.com/Brownie44l1/socket-wrapper v0.0.0-20260122120848-227158156fd0/go.mod h1:yKOqOkpE+6O0YAEbdUofnCN09YWsGk6WtkRskrgwA+Q=
+github.com/Brownie44l1/socket-wrapper v0.0.1 h1:BsYXmETlMOmMHp002dOMYCMnynCa6CosGEy/GvS80P4=
+github.com/Brownie44l1/socket-wrapper v0.0.1/go.mod h1:yKOqOkpE+6O0YAEbdUofnCN09YWsGk6WtkRskrgwA+Q=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

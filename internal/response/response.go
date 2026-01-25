@@ -5,39 +5,68 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/Brownie44l1/http1.1/internal/headers"
+	"github.com/Brownie44l1/http/internal/headers"
 )
 
 // StatusCode represents HTTP status codes
 type StatusCode int
 
 const (
+	// 1xx Informational
+	StatusContinue StatusCode = 100 // ✅ Issue #11: 100-continue support
+	
+	// 2xx Success
 	StatusOK                  StatusCode = 200
 	StatusCreated             StatusCode = 201
+	StatusAccepted            StatusCode = 202
 	StatusNoContent           StatusCode = 204
+	StatusPartialContent      StatusCode = 206 // ✅ Issue #11: Range support
+	
+	// 3xx Redirection
 	StatusMovedPermanently    StatusCode = 301
 	StatusFound               StatusCode = 302
 	StatusSeeOther            StatusCode = 303
+	StatusNotModified         StatusCode = 304 // ✅ Issue #11: ETag support
 	StatusTemporaryRedirect   StatusCode = 307
 	StatusPermanentRedirect   StatusCode = 308
+	
+	// 4xx Client Errors
 	StatusBadRequest          StatusCode = 400
 	StatusUnauthorized        StatusCode = 401
 	StatusForbidden           StatusCode = 403
 	StatusNotFound            StatusCode = 404
 	StatusMethodNotAllowed    StatusCode = 405
+	StatusNotAcceptable       StatusCode = 406
+	StatusRequestTimeout      StatusCode = 408
+	StatusConflict            StatusCode = 409
+	StatusPreconditionFailed  StatusCode = 412 // ✅ Issue #11: For ETag
+	StatusRequestEntityTooLarge StatusCode = 413
+	StatusURITooLong          StatusCode = 414
+	StatusUnsupportedMediaType StatusCode = 415
+	StatusRequestedRangeNotSatisfiable StatusCode = 416 // ✅ Issue #11: Range
+	StatusExpectationFailed   StatusCode = 417 // ✅ Issue #11: Expect
+	StatusTooManyRequests     StatusCode = 429
+	
+	// 5xx Server Errors
 	StatusInternalServerError StatusCode = 500
+	StatusNotImplemented      StatusCode = 501
 	StatusBadGateway          StatusCode = 502
 	StatusServiceUnavailable  StatusCode = 503
+	StatusGatewayTimeout      StatusCode = 504
 )
 
 // statusText maps status codes to reason phrases
 var statusText = map[StatusCode]string{
+	StatusContinue:            "Continue",
 	StatusOK:                  "OK",
 	StatusCreated:             "Created",
+	StatusAccepted:            "Accepted",
 	StatusNoContent:           "No Content",
+	StatusPartialContent:      "Partial Content",
 	StatusMovedPermanently:    "Moved Permanently",
 	StatusFound:               "Found",
 	StatusSeeOther:            "See Other",
+	StatusNotModified:         "Not Modified",
 	StatusTemporaryRedirect:   "Temporary Redirect",
 	StatusPermanentRedirect:   "Permanent Redirect",
 	StatusBadRequest:          "Bad Request",
@@ -45,9 +74,21 @@ var statusText = map[StatusCode]string{
 	StatusForbidden:           "Forbidden",
 	StatusNotFound:            "Not Found",
 	StatusMethodNotAllowed:    "Method Not Allowed",
+	StatusNotAcceptable:       "Not Acceptable",
+	StatusRequestTimeout:      "Request Timeout",
+	StatusConflict:            "Conflict",
+	StatusPreconditionFailed:  "Precondition Failed",
+	StatusRequestEntityTooLarge: "Request Entity Too Large",
+	StatusURITooLong:          "URI Too Long",
+	StatusUnsupportedMediaType: "Unsupported Media Type",
+	StatusRequestedRangeNotSatisfiable: "Requested Range Not Satisfiable",
+	StatusExpectationFailed:   "Expectation Failed",
+	StatusTooManyRequests:     "Too Many Requests",
 	StatusInternalServerError: "Internal Server Error",
+	StatusNotImplemented:      "Not Implemented",
 	StatusBadGateway:          "Bad Gateway",
 	StatusServiceUnavailable:  "Service Unavailable",
+	StatusGatewayTimeout:      "Gateway Timeout",
 }
 
 // writerState tracks what's been written so far
@@ -68,6 +109,7 @@ type Writer struct {
 	contentLength int64 // -1 means unknown
 	isChunked     bool
 	hadError      bool
+	headers       *headers.Headers // Store headers before writing
 }
 
 // NewWriter creates a new response writer
@@ -76,6 +118,7 @@ func NewWriter(w io.Writer) *Writer {
 		w:             w,
 		state:         stateStart,
 		contentLength: -1,
+		headers:       headers.NewHeaders(),
 	}
 }
 
@@ -121,6 +164,9 @@ func (w *Writer) WriteHeaders(h *headers.Headers) error {
 		}
 	}
 
+	// Store headers
+	w.headers = h
+
 	// Write all headers
 	for key, values := range h.GetAllHeaders() {
 		for _, value := range values {
@@ -146,7 +192,7 @@ func (w *Writer) WriteHeaders(h *headers.Headers) error {
 
 // WriteBody writes the complete response body
 func (w *Writer) WriteBody(data []byte) error {
-	if w.state != stateHeadersWritten {
+	if w.state != stateHeadersWritten && w.state != stateBodyWritten {
 		return fmt.Errorf("must write headers before body")
 	}
 
@@ -195,6 +241,16 @@ func (w *Writer) WriteChunk(data []byte) error {
 	}
 
 	w.state = stateBodyWritten
+	return nil
+}
+
+// ✅ Issue #5: Flush forces buffered data to be sent
+func (w *Writer) Flush() error {
+	// Check if underlying writer supports flushing
+	if flusher, ok := w.w.(interface{ Flush() error }); ok {
+		return flusher.Flush()
+	}
+	// If not, it's a no-op (data is already written)
 	return nil
 }
 
@@ -313,6 +369,17 @@ func (w *Writer) NoContentResponse() error {
 	return w.WriteHeaders(h)
 }
 
+// ✅ Issue #11: ContinueResponse sends 100 Continue
+func (w *Writer) ContinueResponse() error {
+	// 100 Continue is special - doesn't change state
+	statusLine := "HTTP/1.1 100 Continue\r\n\r\n"
+	_, err := w.w.Write([]byte(statusLine))
+	if err != nil {
+		w.hadError = true
+	}
+	return err
+}
+
 // State tracking methods for connection management
 
 func (w *Writer) HadError() bool {
@@ -329,4 +396,8 @@ func (w *Writer) IsChunked() bool {
 
 func (w *Writer) StatusCode() StatusCode {
 	return w.statusCode
+}
+
+func (w *Writer) Headers() *headers.Headers {
+	return w.headers
 }
