@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Brownie44l1/http/internal/headers"
+	"github.com/Brownie44l1/http-1/internal/headers"
 )
 
 func TestSimpleResponse(t *testing.T) {

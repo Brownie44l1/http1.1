@@ -4,8 +4,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/Brownie44l1/http/internal/request"
-	"github.com/Brownie44l1/http/internal/response"
+	"github.com/Brownie44l1/http-1/internal/request"
+	"github.com/Brownie44l1/http-1/internal/response"
 	net "github.com/Brownie44l1/socket-wrapper"
 )
 

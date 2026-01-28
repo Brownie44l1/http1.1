@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Brownie44l1/http/internal/response"
-	"github.com/Brownie44l1/http/internal/router"
-	"github.com/Brownie44l1/http/internal/server"
+	"github.com/Brownie44l1/http-1/internal/response"
+	"github.com/Brownie44l1/http-1/internal/router"
+	"github.com/Brownie44l1/http-1/internal/server"
 )
 
 func main() {

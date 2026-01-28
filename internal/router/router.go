@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Brownie44l1/http/internal/response"
-	"github.com/Brownie44l1/http/internal/server"
+	"github.com/Brownie44l1/http-1/internal/response"
+	"github.com/Brownie44l1/http-1/internal/server"
 )
 
 // ✅ Issue #2: Use concrete type instead of interface{}

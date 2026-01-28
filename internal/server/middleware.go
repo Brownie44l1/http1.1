@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Brownie44l1/http/internal/response"
+	"github.com/Brownie44l1/http-1/internal/response"
 )
 
 // ✅ Issue #7: Middleware Support

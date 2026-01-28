@@ -1,9 +1,9 @@
-module github.com/Brownie44l1/http
+module github.com/Brownie44l1/http-1
 
 go 1.24.0
 
 require (
-	github.com/Brownie44l1/socket-wrapper v0.0.1
+	github.com/Brownie44l1/socket-wrapper v0.0.2
 	github.com/stretchr/testify v1.11.1
 )
 
