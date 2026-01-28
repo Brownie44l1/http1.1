@@ -23,28 +23,28 @@ type Field struct {
 	Value interface{}
 }
 
-// defaultLogger is a simple stdout logger
-type defaultLogger struct {
+// DefaultLogger is a simple stdout logger
+type DefaultLogger struct {
 	logger *log.Logger
 }
 
-func (l *defaultLogger) Debug(msg string, fields ...Field) {
+func (l *DefaultLogger) Debug(msg string, fields ...Field) {
 	l.log("DEBUG", msg, fields...)
 }
 
-func (l *defaultLogger) Info(msg string, fields ...Field) {
+func (l *DefaultLogger) Info(msg string, fields ...Field) {
 	l.log("INFO", msg, fields...)
 }
 
-func (l *defaultLogger) Error(msg string, fields ...Field) {
+func (l *DefaultLogger) Error(msg string, fields ...Field) {
 	l.log("ERROR", msg, fields...)
 }
 
-func (l *defaultLogger) Warn(msg string, fields ...Field) {
+func (l *DefaultLogger) Warn(msg string, fields ...Field) {
 	l.log("WARN", msg, fields...)
-}
+}	
 
-func (l *defaultLogger) log(level, msg string, fields ...Field) {
+func (l *DefaultLogger) log(level, msg string, fields ...Field) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
 	output := fmt.Sprintf("[%s] %s: %s", timestamp, level, msg)
 	

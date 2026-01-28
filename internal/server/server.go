@@ -49,24 +49,17 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Server represents an HTTP/1.1 server
 type Server struct {
 	config   *Config
 	handler  Handler
 	listener net.Listener
-
-	// Metrics
 	metrics *Metrics
 	logger  Logger
-
 	mu       sync.RWMutex
 	shutdown bool
 	wg       sync.WaitGroup
-
 	ctx    context.Context
 	cancel context.CancelFunc
-
-	// Middleware
 	middlewares []Middleware
 }
 
@@ -114,6 +107,9 @@ func (l *simpleLogger) Debug(msg string, fields ...Field) {}
 func (l *simpleLogger) Info(msg string, fields ...Field)  {}
 func (l *simpleLogger) Error(msg string, fields ...Field) {
 	log.Printf("ERROR: %s", msg)
+}
+func (l *simpleLogger) Warn(msg string, fields ...Field) {
+	log.Printf("WARN: %s", msg)
 }
 
 // SetLogger sets a custom logger for the server
